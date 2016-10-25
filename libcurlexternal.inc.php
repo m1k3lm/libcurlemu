@@ -68,7 +68,7 @@ if (!is_executable(CURL_PATH)) {
 	}
 }
 
-define("CURLEXT_VERSION","1.0.0");
+define("CURLEXT_VERSION","1.1.0");
 
 define('CURLOPT_NOTHING',0);
 define('CURLOPT_FILE',10001);
@@ -309,7 +309,7 @@ function curl_setopt($ch,$option,$value) {
 			$settings["data"]["value"] = $value;
 			break;
 		case CURLOPT_SSL_VERIFYPEER:
-			$settings["insecure"] = ($value==0);
+			$settings["insecure"] = !$value;
 			break;
 		case CURLOPT_SSL_VERIFYHOST:
 			// not supported by the commandline client
@@ -412,6 +412,9 @@ function curl_setopt($ch,$option,$value) {
 				trigger_error("CURLOPT_WRITEHEADER must specify a valid file resource",E_USER_WARNING);
 			}
 			break;
+		case CURLOPT_HEADERFUNCTION:
+			$opt["header_function"] = $value;
+			break;
 		case CURLOPT_STDERR:
 			// not implemented for now - not really relevant
 			break;
@@ -437,7 +440,7 @@ function curl_exec($ch) {
 	$verbose = $opt["verbose"];
 	
 	// ask commandline CURL to return its statistics at the end of its output
-	$opt["settings"]["write-out"] = "%{http_code}|%{time_total}|%{time_namelookup}|%{time_connect}|%{time_pretransfer}|%{time_starttransfer}|%{size_download}|%{size_upload}|%{size_header}|%{size_request}|%{speed_download}|%{speed_upload}|||||||%{content_type}|%{url_effective}";
+	$opt["settings"]["write-out"] = "\n%{http_code}|%{time_total}|%{time_namelookup}|%{time_connect}|%{time_pretransfer}|%{time_starttransfer}|%{size_download}|%{size_upload}|%{size_header}|%{size_request}|%{speed_download}|%{speed_upload}|||||||%{content_type}|%{url_effective}";
 	$writeout_order = array(
 		CURLINFO_HTTP_CODE,
 		CURLINFO_TOTAL_TIME,
@@ -474,7 +477,7 @@ function curl_exec($ch) {
 	// if the CURLOPT_HEADER option was NOT specified, but a header file handle was
 	// specified, we again need to tell CURL to return the headers so we can write
 	// them, then strip them from the output
-	if (!isset($opt["settings"]["include"]) && isset($opt["header_handle"])) {
+	if (!isset($opt["settings"]["include"]) && (isset($opt["header_handle"]) || isset($opt["header_function"]))) {
 		$opt["settings"]["include"] = true;
 		$strip_headers = true;
 	}
@@ -491,8 +494,7 @@ function curl_exec($ch) {
 			$argval = $argval["value"];
 		}
 		if ($argval===false) continue;
-		if (is_bool($argval)) $argval = "";
-		$arguments .= "--$argname ".escapeshellarg($argval)." ";
+		$arguments .= "--$argname ".(is_bool($argval)?"":escapeshellarg($argval)." ");
 	}
 
 	// build the CURL commandline and execute it
@@ -530,10 +532,13 @@ function curl_exec($ch) {
 	// build the response string
 	$output = implode("\r\n",$output);
 
-	
+
 	// find the header end position if needed
-	if ($strip_headers || $strip_body || isset($opt["header_handle"])) {
+	if ($strip_headers || $strip_body || isset($opt["header_handle"]) || isset($opt["header_function"])) {
 		$headerpos = strpos($output,"\r\n\r\n");
+		while(preg_match("/HTTP\/1.[0-9]+ [0-9]{3} /",substr($output,$headerpos+4))){
+			$headerpos = strpos($output,"\r\n\r\n",$headerpos+4);
+		}
 	}
 
 	// if a file handle was provided for header output, extract the headers
@@ -542,12 +547,17 @@ function curl_exec($ch) {
 		$headers = substr($output,0,$headerpos);
 		fwrite($opt["header_handle"],$headers);
 	}
-	
+
+	if (isset($opt["header_function"])) {
+		$headers = substr($output,0,$headerpos);
+		call_user_func($opt["header_function"],$ch,$headers);
+	}
+
 	// if the caller did not request headers in the output, strip them
 	if ($strip_headers) {
 		$output = substr($output,$headerpos+4);
 	}
-	
+
 	// if the caller did not request the response body in the output, strip it
 	if ($strip_body) {
 		if ($strip_headers) {
