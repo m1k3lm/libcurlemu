@@ -311,6 +311,20 @@ function curl_setopt($ch,$option,$value) {
 		case CURLOPT_SSL_VERIFYPEER:
 			$settings["insecure"] = !$value;
 			break;
+		case CURLOPT_HTTP_VERSION:
+			switch ($value){
+				case 1:
+					$settings["http1.0"] = true;
+					break;
+				case 2:
+					$settings["http1.1"] = true;
+					break;					
+				case 3:
+					$settings["http2"] = true;
+					break;
+			}
+			
+			break;			
 		case CURLOPT_SSL_VERIFYHOST:
 			// not supported by the commandline client
 			break;
@@ -418,6 +432,9 @@ function curl_setopt($ch,$option,$value) {
 		case CURLOPT_STDERR:
 			// not implemented for now - not really relevant
 			break;
+		case CURLOPT_CONNECTTIMEOUT:
+			$opt["connect-timeout"] = $value;
+			break;		
 		// FTP stuff not implemented
 		case CURLOPT_QUOTE:
 		case CURLOPT_POSTQUOTE:
